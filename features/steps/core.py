@@ -5,7 +5,9 @@ from jrnl import cli, install, Journal, util, plugins
 from jrnl import __version__
 from dateutil import parser as date_parser
 from collections import defaultdict
+from codecs import encode, decode
 import os
+import ast
 import json
 import yaml
 import keyring
@@ -132,7 +134,7 @@ def has_error(context):
 
 @then('we should get no error')
 def no_error(context):
-    assert context.exit_status is 0, context.exit_status
+    assert context.exit_status == 0, context.exit_status
 
 
 @then('the output should be parsable as json')
@@ -181,12 +183,22 @@ def check_json_output_path(context, path, value):
             struct = struct[node]
     assert struct == value, struct
 
+def process_ANSI_escapes(text):
+    """Escapes and 'unescapes' a string with ANSI escapes so that behave stdout
+    comparisons work properly. This will render colors, and works with unicode
+    characters. https://stackoverflow.com/a/57192592
+    :param str text: The text to be escaped and unescaped
+    :return: Colorized / escaped text
+    :rtype: str
+    """
+    return decode(encode(text, 'latin-1', 'backslashreplace'), 'unicode-escape')
+
 
 @then('the output should be')
 @then('the output should be "{text}"')
 def check_output(context, text=None):
     text = (text or context.text).strip().splitlines()
-    out = context.stdout_capture.getvalue().strip().splitlines()
+    out = process_ANSI_escapes(context.stdout_capture.getvalue().strip()).splitlines()
     assert len(text) == len(out), "Output has {} lines (expected: {})".format(len(out), len(text))
     for line_text, line_out in zip(text, out):
         assert line_text.strip() == line_out.strip(), [line_text.strip(), line_out.strip()]
@@ -194,7 +206,7 @@ def check_output(context, text=None):
 
 @then('the output should contain "{text}" in the local time')
 def check_output_time_inline(context, text):
-    out = context.stdout_capture.getvalue()
+    out = process_ANSI_escapes(context.stdout_capture.getvalue())
     local_tz = tzlocal.get_localzone()
     utc_time = date_parser.parse(text)
     local_date = utc_time.astimezone(local_tz).strftime("%Y-%m-%d %H:%M")
@@ -205,7 +217,7 @@ def check_output_time_inline(context, text):
 @then('the output should contain "{text}"')
 def check_output_inline(context, text=None):
     text = text or context.text
-    out = context.stdout_capture.getvalue()
+    out = process_ANSI_escapes(context.stdout_capture.getvalue())
     assert text in out, text
 
 
@@ -245,12 +257,17 @@ def journal_doesnt_exist(context, journal_name="default"):
 @then('the config should have "{key}" set to "{value}"')
 @then('the config for journal "{journal}" should have "{key}" set to "{value}"')
 def config_var(context, key, value, journal=None):
-    t, value = value.split(":")
-    value = {
-        "bool": lambda v: v.lower() == "true",
-        "int": int,
-        "str": str
-    }[t](value)
+    if not value[0] == "{":
+        t, value = value.split(":")
+        value = {
+            "bool": lambda v: v.lower() == "true",
+            "int": int,
+            "str": str
+        }[t](value)
+    else:
+        # Handle value being a dictionary
+        value = ast.literal_eval(value)
+
     config = util.load_config(install.CONFIG_FILE_PATH)
     if journal:
         config = config["journals"][journal]

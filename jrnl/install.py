@@ -10,7 +10,7 @@ from . import upgrade
 from . import __version__
 from .Journal import PlainJournal
 from .EncryptedJournal import EncryptedJournal
-from .util import UserAbort
+from .util import UserAbort, verify_config
 import yaml
 import logging
 import sys
@@ -40,6 +40,7 @@ def module_exists(module_name):
     else:
         return True
 
+
 default_config = {
     'version': __version__,
     'journals': {
@@ -55,6 +56,12 @@ default_config = {
     'highlight': True,
     'linewrap': 79,
     'indent_character': '|',
+    'colors': {
+        'date': 'none',
+        'title': 'none',
+        'body': 'none',
+        'tags': 'none',
+    },
 }
 
 
@@ -96,6 +103,7 @@ def load_or_install_jrnl():
             sys.exit(1)
 
         upgrade_config(config)
+        verify_config(config)
 
         return config
     else:
